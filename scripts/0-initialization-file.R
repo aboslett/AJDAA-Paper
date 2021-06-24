@@ -54,3 +54,12 @@ for(fff in c('Data', 'Scratch', 'Documents', 'Figures', 'Tables')) {
   dir.create(paste0('Opioids_ML_2/', fff), showWarnings = TRUE)
   
 }
+
+# Our data folder is in a remote network drive with greater security than what is available from Box. Our base mortality
+# files are saved as CSV files in a CSV folder in the network drive. We save intermediate files derived from the mortality
+# CSV files as RDS files into a RDS folder in the remote drive.
+
+remote_drive <- '//smdnas/Hill_Lab/Mortality'
+
+remote_drive_csv <- paste0(remote_drive, '/CSV')
+remote_drive_rds <- paste0(remote_drive, '/RDS')
