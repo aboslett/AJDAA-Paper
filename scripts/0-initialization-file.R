@@ -7,6 +7,7 @@
 # Note: I believe that all of these packages are used in this code (or were used in various iterations of it, some
 # of which may be deprecated).
 
+library(ggalt)
 library(tidyverse)
 library(foreign)
 library(readr)
