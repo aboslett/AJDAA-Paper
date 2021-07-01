@@ -308,6 +308,277 @@ temp_summary %>% group_by(year) %>%
                funs(sum(., na.rm = TRUE))) %>%
   ungroup() -> total_rates
 
+# Calculate age adjusted rates of opioid overdoses in the U.S. by state (Census) -------------------------------
+# Note: Alina, this is the version that gets our original estimates in the paper.
+
+rm(list = setdiff(ls(), c('drug_overdoses')))
+# Note: Resulting file has all drug overdoses + predictions of opioid involvement in drug overdoses without drug information.
+
+# Get standard population data.
+# Note: See Distribution #1 from cdc.gov/nchs/data/statnt/statnt20.pdf. See Distribution #1 (but in 5-year increments).
+
+us_pop <- read.table(url("https://seer.cancer.gov/stdpopulations/stdpop.19ages.txt"),
+                     colClasses = c('character'))
+
+# Filter out 2000 standard population
+# Note: Dictionary is available at https://seer.cancer.gov/stdpopulations/stdpopdic.html
+
+us_pop %<>% filter(str_sub(us_pop$V1, end = 3) == 201)
+
+# Add age group 
+
+us_pop %<>% mutate(
+  age_group = case_when(
+    str_sub(V1, start = 4, end = 6) == '000' ~ '00 years',
+    str_sub(V1, start = 4, end = 6) == '001' ~ '01-04 years',
+    str_sub(V1, start = 4, end = 6) == '002' ~ '05-09 years',
+    str_sub(V1, start = 4, end = 6) == '003' ~ '10-14 years',
+    str_sub(V1, start = 4, end = 6) == '004' ~ '15-19 years',
+    str_sub(V1, start = 4, end = 6) == '005' ~ '20-24 years',
+    str_sub(V1, start = 4, end = 6) == '006' ~ '25-29 years',
+    str_sub(V1, start = 4, end = 6) == '007' ~ '30-34 years',
+    str_sub(V1, start = 4, end = 6) == '008' ~ '35-39 years',
+    str_sub(V1, start = 4, end = 6) == '009' ~ '40-44 years',
+    str_sub(V1, start = 4, end = 6) == '010' ~ '45-49 years',
+    str_sub(V1, start = 4, end = 6) == '011' ~ '50-54 years',
+    str_sub(V1, start = 4, end = 6) == '012' ~ '55-59 years',
+    str_sub(V1, start = 4, end = 6) == '013' ~ '60-64 years',
+    str_sub(V1, start = 4, end = 6) == '014' ~ '65-69 years',
+    str_sub(V1, start = 4, end = 6) == '015' ~ '70-74 years',
+    str_sub(V1, start = 4, end = 6) == '016' ~ '75-79 years',
+    str_sub(V1, start = 4, end = 6) == '017' ~ '80-84 years',
+    str_sub(V1, start = 4, end = 6) == '018' ~ '85+ years',
+  )
+)
+
+# Download recent population data
+# Note: From NBER website (easier to download from zip folder and csv)
+
+temp <- tempfile()
+download.file("https://data.nber.org/seer-pop/uswbo19agesadj.csv.zip",temp)
+recent_pop <- read_csv(unz(temp, "uswbo19agesadj.csv"))
+unlink(temp)
+
+names(recent_pop) <-  c('year', 'state', 'state_fips', 'county_fips',
+                        'registry', 'race', 'origin', 'sex', 'age', 
+                        'population')
+
+# Filter out only 2017 and 2018 from population data and drug overdose data
+
+recent_pop %<>% filter(year >= 2017)
+temp <- drug_overdoses %>% filter(year >= 2017)
+
+# Select relevant variables in drug overdoses database
+
+temp %<>% select(year, contains('age'), state_fips_res,
+                 unidentified_drug_only,
+                 any_opioid, any_opioid_pred)
+
+# Make population numeric
+# Note: Data for recent population came with leading zeros as character.
+
+recent_pop %<>% mutate_at(vars(population),
+                          funs(as.numeric(.)))
+
+us_pop %<>% mutate_at(vars(standard_population),
+                      funs(as.numeric(.)))
+
+# Fill opioid_pred NAs with zeros
+# Note: This means that we're not adding opioid involvement to any
+# identified drug overdoses
+
+temp %<>% mutate_at(vars(any_opioid_pred), funs(ifelse(is.na(.) == TRUE, 0, .)))
+
+# Summarise drug overdoses by age and year and state FIPS code
+
+temp_summary <- temp %>% group_by(year, ager52, state_fips_res) %>%
+  summarise_at(vars(any_opioid, any_opioid_pred),
+               funs(sum(., na.rm = TRUE))) %>%
+  ungroup()
+
+# Summarise US population by age group and year
+# Note: This version of the file contains population data in 19 age groups.
+# https://seer.cancer.gov/popdata/download.html
+
+pop_summary <- recent_pop %>% group_by(year, age, state_fips) %>%
+  summarise_at(vars(population),
+               funs(sum(., na.rm = TRUE))) %>%
+  ungroup()
+
+# Record drug overdoses age data to match populatin data from SEER
+# Note: Checked from data.nber.org/mortality/2017/mort2017.pdf and from
+# https://seer.cancer.gov/popdata/popdic.html.
+
+temp_summary %<>% mutate(
+  age = case_when(
+    ager52 <= 22 ~ '00 years',
+    ager52 >= 23 & ager52 <= 26 ~ '01-04 years',
+    ager52 == 27 ~ '05-09 years',
+    ager52 == 28 ~ '10-14 years',
+    ager52 == 29 ~ '15-19 years',
+    ager52 == 30 ~ '20-24 years',
+    ager52 == 31 ~ '25-29 years',
+    ager52 == 32 ~ '30-34 years',
+    ager52 == 33 ~ '35-39 years',
+    ager52 == 34 ~ '40-44 years',
+    ager52 == 35 ~ '45-49 years',
+    ager52 == 36 ~ '50-54 years',
+    ager52 == 37 ~ '55-59 years',
+    ager52 == 38 ~ '60-64 years',
+    ager52 == 39 ~ '65-69 years',
+    ager52 == 40 ~ '70-74 years',
+    ager52 == 41 ~ '75-79 years',
+    ager52 == 42 ~ '80-84 years',
+    ager52 >= 43 & ager52 <= 51 ~ '85+ years'
+  )
+)
+
+pop_summary %<>% mutate(
+  age = as.numeric(age),
+  age = case_when(
+    age == 0 ~ '00 years',
+    age == 1 ~ '01-04 years',
+    age == 2 ~ '05-09 years',
+    age == 3 ~ '10-14 years',
+    age == 4 ~ '15-19 years',
+    age == 5 ~ '20-24 years',
+    age == 6 ~ '25-29 years',
+    age == 7 ~ '30-34 years',
+    age == 8 ~ '35-39 years',
+    age == 9 ~ '40-44 years',
+    age == 10 ~ '45-49 years',
+    age == 11 ~ '50-54 years',
+    age == 12 ~ '55-59 years',
+    age == 13 ~ '60-64 years',
+    age == 14 ~ '65-69 years',
+    age == 15 ~ '70-74 years',
+    age == 16 ~ '75-79 years',
+    age == 17 ~ '80-84 years',
+    age == 18 ~ '85+ years'
+  )
+)
+
+# Resummarize the population data using the same variable as before
+# Note: This is a complete set of population data, i.e., all states
+# and years have populations represented in the age breakdowns. This may not
+# be the case on the overdose-side for either states or counties.
+
+pop_summary %<>% group_by(age, year, state_fips) %>%
+  summarise(population  = sum(population, na.rm = TRUE)) %>%
+  ungroup()
+
+# Resummarise the drug overdose data using new definition 
+# Note: We dropped missing age variables, which would have been coded up with
+# "52" values in the 52 age breakdown from NCHS.
+
+temp_summary %<>% filter(!is.na(age)) %>%
+  group_by(year, age, state_fips_res) %>% 
+  summarise_at(vars(contains('opioid')),
+               funs(sum(., na.rm = TRUE))) %>%
+  ungroup()
+
+pop_summary %<>% select(everything(), population_current = population)
+
+# Join drug overdoses data to pop_summary data
+# Note: Previously did the reverse. But drug overdoses may not occurred in certain population groups
+# in certain states. We see that here. This is a mistake in our code.
+
+drug_overdoses_summary <- pop_summary %>% left_join(temp_summary, by = c('age', 'year', 
+                                                                         'state_fips' = 'state_fips_res'))
+
+# Make opioid counts 0 for those state-age-year combinations without any opioid overdoses 
+
+drug_overdoses_summary %<>% mutate_at(vars(contains('opioid')),
+                                      funs(ifelse(is.na(.) == TRUE, 0, .)))
+
+# Join population/drug overdose data with standard population data
+
+drug_overdoses_summary %<>% left_join(us_pop, by = c('age' = 'age_group'))
+
+# Rearrange data
+
+drug_overdoses_summary %<>% arrange(state_fips, year, age)
+
+# Add new estimates of opioid overdoses
+
+drug_overdoses_summary %<>% mutate(any_opioid_new = any_opioid + any_opioid_pred)
+
+# Add total population data for each year
+# Note: This is purely state-level population by year.
+
+drug_overdoses_summary %<>% group_by(year, state_fips) %>%
+  mutate(population_current_total = sum(population_current)) %>%
+  ungroup()
+
+# Calculate opioid overdose rates per 100,000 people
+# Note: This is by state-year-age group
+
+drug_overdoses_summary %<>% mutate_at(
+  vars(any_opioid, any_opioid_new),
+  funs(rate = (. / population_current) * 100000)
+)
+
+# Add age-specific weights and weighted rates by the CDC population indicators
+
+drug_overdoses_summary %<>% group_by(year, state_fips) %>% 
+  mutate(population_total_cdc = sum(standard_population)) %>%
+  ungroup() %>%
+  mutate(
+    weight = standard_population / population_total_cdc
+  ) %>%
+  mutate_at(
+    vars(any_opioid_rate, any_opioid_new_rate),
+    funs(weighted = . * weight)
+  )
+
+# Generate opioid overdose rates across groups
+
+drug_overdoses_summary %>% group_by(year, state_fips) %>%
+  summarise_at(vars(contains('weighted')),
+               funs(sum(., na.rm = TRUE))) %>%
+  ungroup() -> state_rates
+
+# Join with data indicators
+
+state_fips_codes <- state.fips
+
+state_fips_codes %<>% mutate(polyname = ifelse(str_detect(string = polyname, pattern = '\\:') == TRUE,
+                                               str_extract_all(string = polyname, pattern = '^.*(?=(\\:))'), 
+                                               polyname))
+
+state_fips_codes %<>% select(polyname, abb, fips) %>% unique()
+
+temp2 <- data.frame(name = c('hawaii', 'alaska'),
+                    abb = c('HI', 'AK'),
+                    fips = c('15', '02'))
+
+names(temp2) <- c('polyname', 'abb', 'fips')
+
+temp2 %<>% mutate_all(funs(as.character(.)))
+
+state_fips_codes %<>% mutate_all(funs(as.character(.)))
+
+state_fips_codes %<>% bind_rows(temp2)
+
+rm(temp2)
+
+state_fips_codes %<>% mutate(fips = ifelse(str_length(fips) == 1, paste0('0', fips), fips))
+
+state_fips_codes %<>% mutate(polyname = str_to_title(polyname))
+
+# Merge with abbreviation/name of state
+
+state_rates %<>% left_join(state_fips_codes, by = c('state_fips' = 'fips'))
+
+# Reshape wide by year
+
+state_rates %<>% setDT() %>%
+  dcast(state_fips + polyname + abb ~ year, 
+        value.var = c('any_opioid_rate_weighted', 
+                      'any_opioid_new_rate_weighted'))
+
+state_rates %>% saveRDS('Opioids_ML_2/Scratch/State_Opioid_Overdose_Rates_2017_2018.rds')
+
 # Calculate age adjusted rates of opioid overdoses in the U.S. by county (Census) -------------------------------
 
 # Note: Resulting file has all drug overdoses + predictions of opioid involvement in drug overdoses without drug information.
@@ -474,6 +745,7 @@ pop_summary %<>% select(everything(), population_current = population)
 # Create complete index for US population data
 # Note: Very important. Found out hard-way. Need to make sure that you have a complete index or, otherwise,
 # you will basically place no weights on age groups without drug overdoses in smallish jurisdictions. 
+
 n_distinct(temp_summary$county_fips_res)
 
 counties <- temp_summary %>% dplyr::select(county_fips_res) %>% unique()
